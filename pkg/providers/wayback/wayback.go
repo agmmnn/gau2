@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/agmmnn/gau2/pkg/httpclient"
+	"github.com/agmmnn/gau2/pkg/providers"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/lc/gau/v2/pkg/httpclient"
-	"github.com/lc/gau/v2/pkg/providers"
 	"github.com/sirupsen/logrus"
 )
 

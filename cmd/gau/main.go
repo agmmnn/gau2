@@ -7,9 +7,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/lc/gau/v2/pkg/output"
-	"github.com/lc/gau/v2/runner"
-	"github.com/lc/gau/v2/runner/flags"
+	"github.com/agmmnn/gau2/pkg/output"
+	"github.com/agmmnn/gau2/runner"
+	"github.com/agmmnn/gau2/runner/flags"
 	log "github.com/sirupsen/logrus"
 )
 

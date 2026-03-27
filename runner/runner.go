@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lc/gau/v2/pkg/providers"
-	"github.com/lc/gau/v2/pkg/providers/commoncrawl"
-	"github.com/lc/gau/v2/pkg/providers/otx"
-	"github.com/lc/gau/v2/pkg/providers/urlscan"
-	"github.com/lc/gau/v2/pkg/providers/virustotal"
-	"github.com/lc/gau/v2/pkg/providers/wayback"
+	"github.com/agmmnn/gau2/pkg/providers"
+	"github.com/agmmnn/gau2/pkg/providers/commoncrawl"
+	"github.com/agmmnn/gau2/pkg/providers/otx"
+	"github.com/agmmnn/gau2/pkg/providers/urlscan"
+	"github.com/agmmnn/gau2/pkg/providers/virustotal"
+	"github.com/agmmnn/gau2/pkg/providers/wayback"
 	"github.com/sirupsen/logrus"
 )
 

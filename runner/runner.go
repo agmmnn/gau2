@@ -9,6 +9,7 @@ import (
 	"github.com/lc/gau/v2/pkg/providers/commoncrawl"
 	"github.com/lc/gau/v2/pkg/providers/otx"
 	"github.com/lc/gau/v2/pkg/providers/urlscan"
+	"github.com/lc/gau/v2/pkg/providers/virustotal"
 	"github.com/lc/gau/v2/pkg/providers/wayback"
 	"github.com/sirupsen/logrus"
 )
@@ -38,6 +39,8 @@ func (r *Runner) Init(c *providers.Config, providers []string, filters providers
 				return fmt.Errorf("error instantiating commoncrawl: %v\n", err)
 			}
 			r.Providers = append(r.Providers, cc)
+		case "virustotal":
+			r.Providers = append(r.Providers, virustotal.New(c))
 		}
 	}
 

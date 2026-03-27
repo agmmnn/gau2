@@ -3,12 +3,13 @@ package providers
 import "net/url"
 
 type Filters struct {
-	From              string   `mapstructure:"from"`
-	To                string   `mapstructure:"to"`
-	MatchStatusCodes  []string `mapstructure:"matchstatuscodes"`
-	MatchMimeTypes    []string `mapstructure:"matchmimetypes"`
-	FilterStatusCodes []string `mapstructure:"filterstatuscodes"`
-	FilterMimeTypes   []string `mapstructure:"filtermimetypes"`
+	From               string   `mapstructure:"from"`
+	To                 string   `mapstructure:"to"`
+	MatchStatusCodes   []string `mapstructure:"matchstatuscodes"`
+	MatchMimeTypes     []string `mapstructure:"matchmimetypes"`
+	FilterStatusCodes  []string `mapstructure:"filterstatuscodes"`
+	FilterMimeTypes    []string `mapstructure:"filtermimetypes"`
+	CommonCrawlFilters []string `mapstructure:"commoncrawlfilters"`
 }
 
 func (f *Filters) GetParameters(forWayback bool) string {
@@ -70,6 +71,12 @@ func (f *Filters) GetParameters(forWayback bool) string {
 		if len(f.FilterMimeTypes) > 0 {
 			for _, fs := range f.FilterMimeTypes {
 				form.Add("filter", "!=mime:"+fs)
+			}
+		}
+
+		if len(f.CommonCrawlFilters) > 0 {
+			for _, filter := range f.CommonCrawlFilters {
+				form.Add("filter", filter)
 			}
 		}
 

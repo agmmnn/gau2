@@ -38,49 +38,74 @@ type waybackResult [][]string
 // Fetch fetches all urls for a given domain and sends them to a channel.
 // It returns an error should one occur.
 func (c *Client) Fetch(ctx context.Context, domain string, results chan string) error {
-	for page := uint(0); ; page++ {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			logrus.WithFields(logrus.Fields{"provider": Name, "page": page}).Infof("fetching %s", domain)
-			apiURL := c.formatURL(domain, page)
-			// make HTTP request
-			resp, err := httpclient.MakeRequest(c.config.Client, apiURL, c.config.MaxRetries, c.config.Timeout)
-			if err != nil {
-				if errors.Is(err, httpclient.ErrBadRequest) {
-					return nil
-				}
-				return fmt.Errorf("failed to fetch wayback results page %d: %s", page, err)
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+		logrus.WithFields(logrus.Fields{"provider": Name}).Infof("fetching %s", domain)
+		apiURL := c.formatURL(domain)
+		resp, err := httpclient.MakeRequest(c.config.Client, apiURL, c.config.MaxRetries, c.config.Timeout)
+		if err != nil {
+			if errors.Is(err, httpclient.ErrBadRequest) {
+				return nil
 			}
-			var result waybackResult
-			if err = jsoniter.Unmarshal(resp, &result); err != nil {
-				return fmt.Errorf("failed to decode wayback results for page %d: %s", page, err)
-			}
+			return fmt.Errorf("failed to fetch wayback results: %s", err)
+		}
 
-			// check if there's results, wayback's pagination response
-			// is not always correct when using a filter
-			if len(result) == 0 {
-				break
-			}
+		urls, err := parseResponse(resp)
+		if err != nil {
+			return fmt.Errorf("failed to decode wayback results: %s", err)
+		}
 
-			// output results
-			// Slicing as [1:] to skip first result by default
-			for _, entry := range result[1:] {
-				results <- entry[0]
-			}
+		for _, archivedURL := range urls {
+			results <- archivedURL
 		}
 	}
+
+	return nil
 }
 
 // formatUrl returns a formatted URL for the Wayback API
-func (c *Client) formatURL(domain string, page uint) string {
+func (c *Client) formatURL(domain string) string {
 	if c.config.IncludeSubdomains {
 		domain = "*." + domain
 	}
 	filterParams := c.filters.GetParameters(true)
 	return fmt.Sprintf(
-		"https://web.archive.org/cdx/search/cdx?url=%s/*&output=json&collapse=urlkey&fl=original&pageSize=100&page=%d",
-		domain, page,
+		"http://web.archive.org/cdx/search/cdx?url=%s/*&output=json&collapse=urlkey&fl=timestamp,original",
+		domain,
 	) + filterParams
+}
+
+func parseResponse(resp []byte) ([]string, error) {
+	var result waybackResult
+	if err := jsoniter.Unmarshal(resp, &result); err != nil {
+		return nil, err
+	}
+
+	start := 0
+	if len(result) > 0 && len(result[0]) > 0 && (result[0][0] == "original" || result[0][0] == "timestamp" || result[0][0] == "urlkey") {
+		start = 1
+	}
+
+	capHint := len(result) - start
+	if capHint < 0 {
+		capHint = 0
+	}
+
+	urls := make([]string, 0, capHint)
+	for _, entry := range result[start:] {
+		if len(entry) == 0 {
+			continue
+		}
+
+		archivedURL := entry[len(entry)-1]
+		if archivedURL == "" {
+			continue
+		}
+
+		urls = append(urls, archivedURL)
+	}
+
+	return urls, nil
 }

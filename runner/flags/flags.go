@@ -25,6 +25,11 @@ type URLScanConfig struct {
 	APIKey string `mapstructure:"apikey"`
 }
 
+type VirusTotalConfig struct {
+	Host   string `mapstructure:"host"`
+	APIKey string `mapstructure:"apikey"`
+}
+
 type Config struct {
 	Filters           providers.Filters `mapstructure:"filters"`
 	Proxy             string            `mapstructure:"proxy"`
@@ -38,6 +43,7 @@ type Config struct {
 	Blacklist         []string          `mapstructure:"blacklist"`
 	JSON              bool              `mapstructure:"json"`
 	URLScan           URLScanConfig     `mapstructure:"urlscan"`
+	VirusTotal        VirusTotalConfig  `mapstructure:"virustotal"`
 	OTX               string            `mapstructure:"otx"`
 	Outfile           string            // output file to write to
 }
@@ -79,7 +85,15 @@ func (c *Config) ProviderConfig() (*providers.Config, error) {
 			Host:   c.URLScan.Host,
 			APIKey: c.URLScan.APIKey,
 		},
+		VirusTotal: providers.VirusTotal{
+			Host:   c.VirusTotal.Host,
+			APIKey: c.VirusTotal.APIKey,
+		},
 		OTX: c.OTX,
+	}
+
+	if pc.VirusTotal.APIKey == "" {
+		pc.VirusTotal.APIKey = os.Getenv("VT_API_KEY")
 	}
 
 	log.SetLevel(log.ErrorLevel)
@@ -105,17 +119,20 @@ func New() *Options {
 	pflag.Uint("retries", 0, "retries for HTTP client")
 	pflag.String("proxy", "", "http proxy to use")
 	pflag.StringSlice("blacklist", []string{}, "list of extensions to skip")
-	pflag.StringSlice("providers", []string{}, "list of providers to use (wayback,commoncrawl,otx,urlscan)")
+	pflag.StringSlice("providers", []string{}, "list of providers to use (wayback,commoncrawl,otx,urlscan,virustotal)")
 	pflag.Bool("subs", false, "include subdomains of target domain")
 	pflag.Bool("fp", false, "remove different parameters of the same endpoint")
 	pflag.Bool("verbose", false, "show verbose output")
 	pflag.Bool("json", false, "output as json")
+	pflag.String("vt-api-key", "", "VirusTotal API key")
+	pflag.String("vt-host", "", "VirusTotal API base URL")
 
 	// filter flags
 	pflag.StringSlice("mc", []string{}, "list of status codes to match")
 	pflag.StringSlice("fc", []string{}, "list of status codes to filter")
 	pflag.StringSlice("mt", []string{}, "list of mime-types to match")
 	pflag.StringSlice("ft", []string{}, "list of mime-types to filter")
+	pflag.StringSlice("ccf", []string{}, "raw Common Crawl filters to append (for example '=mime:text/html' or '~url:.*\\\\.php$')")
 	pflag.String("from", "", "fetch urls from date (format: YYYYMM)")
 	pflag.String("to", "", "fetch urls to date (format: YYYYMM)")
 	pflag.Bool("version", false, "show gau version")
@@ -181,7 +198,7 @@ func (o *Options) DefaultConfig() *Config {
 		MaxRetries:        5,
 		IncludeSubdomains: false,
 		RemoveParameters:  false,
-		Providers:         []string{"wayback", "commoncrawl", "otx", "urlscan"},
+		Providers:         []string{"wayback", "commoncrawl", "otx", "urlscan", "virustotal"},
 		Blacklist:         []string{},
 		JSON:              false,
 		Outfile:           "",
@@ -204,6 +221,8 @@ func (o *Options) getFlagValues(c *Config) {
 	blacklist := o.viper.GetStringSlice("blacklist")
 	subs := o.viper.GetBool("subs")
 	fp := o.viper.GetBool("fp")
+	vtAPIKey := o.viper.GetString("vt-api-key")
+	vtHost := o.viper.GetString("vt-host")
 
 	if version {
 		fmt.Printf("gau version: %s\n", providers.Version)
@@ -244,6 +263,14 @@ func (o *Options) getFlagValues(c *Config) {
 		c.RemoveParameters = fp
 	}
 
+	if vtAPIKey != "" {
+		c.VirusTotal.APIKey = vtAPIKey
+	}
+
+	if vtHost != "" {
+		c.VirusTotal.Host = vtHost
+	}
+
 	c.JSON = json
 	c.Verbose = verbose
 
@@ -252,6 +279,7 @@ func (o *Options) getFlagValues(c *Config) {
 	fc := o.viper.GetStringSlice("fc")
 	mt := o.viper.GetStringSlice("mt")
 	ft := o.viper.GetStringSlice("ft")
+	ccf := o.viper.GetStringSlice("ccf")
 	from := o.viper.GetString("from")
 	to := o.viper.GetString("to")
 
@@ -276,6 +304,11 @@ func (o *Options) getFlagValues(c *Config) {
 	if len(ft) > 0 {
 		seenFilterFlag = true
 		filters.FilterMimeTypes = ft
+	}
+
+	if len(ccf) > 0 {
+		seenFilterFlag = true
+		filters.CommonCrawlFilters = ccf
 	}
 
 	if from != "" {

@@ -11,6 +11,10 @@ type paginationResult struct {
 	Pages    uint `json:"pages"`
 }
 
-type apiResult []struct {
-	API string `json:"cdx-api"`
+type apiIndex struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	API  string `json:"cdx-api"`
 }
+
+type apiResult []apiIndex

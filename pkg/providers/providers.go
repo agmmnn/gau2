@@ -7,7 +7,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-const Version = `2.2.4`
+const Version = `2.2.5`
 
 // Provider is a generic interface for all archive fetchers
 type Provider interface {
@@ -16,6 +16,11 @@ type Provider interface {
 }
 
 type URLScan struct {
+	Host   string
+	APIKey string
+}
+
+type VirusTotal struct {
 	Host   string
 	APIKey string
 }
@@ -32,5 +37,6 @@ type Config struct {
 	Output            string
 	JSON              bool
 	URLScan           URLScan
+	VirusTotal        VirusTotal
 	OTX               string
 }

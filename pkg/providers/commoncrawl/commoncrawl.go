@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/lc/gau/v2/pkg/httpclient"
 	"github.com/lc/gau/v2/pkg/providers"
@@ -25,12 +26,12 @@ type Client struct {
 	filters providers.Filters
 	config  *providers.Config
 
-	apiURL string
+	indexes []apiIndex
 }
 
 func New(c *providers.Config, filters providers.Filters) (*Client, error) {
 	// Fetch the list of available CommonCrawl Api URLs.
-	resp, err := httpclient.MakeRequest(c.Client, "http://index.commoncrawl.org/collinfo.json", c.MaxRetries, c.Timeout)
+	resp, err := httpclient.MakeRequest(c.Client, "https://index.commoncrawl.org/collinfo.json", c.MaxRetries, c.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func New(c *providers.Config, filters providers.Filters) (*Client, error) {
 		return nil, errors.New("failed to grab latest commoncrawl index")
 	}
 
-	return &Client{config: c, filters: filters, apiURL: r[0].API}, nil
+	return &Client{config: c, filters: filters, indexes: r}, nil
 }
 
 func (c *Client) Name() string {
@@ -54,58 +55,95 @@ func (c *Client) Name() string {
 // Fetch fetches all urls for a given domain and sends them to a channel.
 // It returns an error should one occur.
 func (c *Client) Fetch(ctx context.Context, domain string, results chan string) error {
-	p, err := c.getPagination(domain)
-	if err != nil {
-		return err
-	}
-	// 0 pages means no results
-	if p.Pages == 0 {
-		logrus.WithFields(logrus.Fields{"provider": Name}).Infof("no results for %s", domain)
-		return nil
-	}
+	seen := mapset.NewThreadUnsafeSet[string]()
+	var lastErr error
+	var foundResults bool
 
-	for page := uint(0); page < p.Pages; page++ {
+	for _, index := range c.indexes {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			logrus.WithFields(logrus.Fields{"provider": Name, "page": page}).Infof("fetching %s", domain)
-			apiURL := c.formatURL(domain, page)
-			resp, err := httpclient.MakeRequest(c.config.Client, apiURL, c.config.MaxRetries, c.config.Timeout)
-			if err != nil {
-				return fmt.Errorf("failed to fetch commoncrawl(%d): %s", page, err)
-			}
+		}
 
-			sc := bufio.NewScanner(bytes.NewReader(resp))
-			for sc.Scan() {
-				var res apiResponse
-				if err := jsoniter.Unmarshal(sc.Bytes(), &res); err != nil {
-					return fmt.Errorf("failed to decode commoncrawl result:  %s", err)
-				}
-				if res.Error != "" {
-					return fmt.Errorf("received an error from commoncrawl: %s", res.Error)
+		p, err := c.getPagination(index.API, domain)
+		if err != nil {
+			lastErr = err
+			logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID}).Warnf("pagination failed for %s: %v", domain, err)
+			continue
+		}
+
+		if p.Pages == 0 {
+			continue
+		}
+
+		for page := uint(0); page < p.Pages; page++ {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID, "page": page}).Infof("fetching %s", domain)
+				apiURL := c.formatURL(index.API, domain, page)
+				resp, err := httpclient.MakeRequest(c.config.Client, apiURL, c.config.MaxRetries, c.config.Timeout)
+				if err != nil {
+					lastErr = err
+					logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID, "page": page}).Warnf("request failed for %s: %v", domain, err)
+					continue
 				}
 
-				results <- res.URL
+				sc := bufio.NewScanner(bytes.NewReader(resp))
+				sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+				for sc.Scan() {
+					var res apiResponse
+					if err := jsoniter.Unmarshal(sc.Bytes(), &res); err != nil {
+						lastErr = fmt.Errorf("failed to decode commoncrawl result from %s page %d: %w", index.ID, page, err)
+						logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID, "page": page}).Warn(lastErr)
+						break
+					}
+					if res.Error != "" {
+						lastErr = fmt.Errorf("received an error from commoncrawl index %s: %s", index.ID, res.Error)
+						logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID, "page": page}).Warn(lastErr)
+						break
+					}
+
+					if res.URL == "" || seen.Contains(res.URL) {
+						continue
+					}
+
+					seen.Add(res.URL)
+					foundResults = true
+					results <- res.URL
+				}
+
+				if err := sc.Err(); err != nil {
+					lastErr = fmt.Errorf("failed to scan commoncrawl response from %s page %d: %w", index.ID, page, err)
+					logrus.WithFields(logrus.Fields{"provider": Name, "index": index.ID, "page": page}).Warn(lastErr)
+				}
 			}
 		}
 	}
+
+	if !foundResults && lastErr == nil {
+		logrus.WithFields(logrus.Fields{"provider": Name}).Infof("no results for %s", domain)
+	}
+
 	return nil
 }
 
-func (c *Client) formatURL(domain string, page uint) string {
+func (c *Client) formatURL(apiURL string, domain string, page uint) string {
 	if c.config.IncludeSubdomains {
 		domain = "*." + domain
 	}
 
 	filterParams := c.filters.GetParameters(false)
 
-	return fmt.Sprintf("%s?url=%s/*&output=json&fl=url&page=%d", c.apiURL, domain, page) + filterParams
+	return fmt.Sprintf("%s?url=%s/*&output=json&fl=url&page=%d", apiURL, domain, page) + filterParams
 }
 
 // Fetch the number of pages.
-func (c *Client) getPagination(domain string) (r paginationResult, err error) {
-	url := fmt.Sprintf("%s&showNumPages=true", c.formatURL(domain, 0))
+func (c *Client) getPagination(apiURL string, domain string) (r paginationResult, err error) {
+	url := fmt.Sprintf("%s&showNumPages=true", c.formatURL(apiURL, domain, 0))
 	var resp []byte
 
 	resp, err = httpclient.MakeRequest(c.config.Client, url, c.config.MaxRetries, c.config.Timeout)

@@ -3,17 +3,24 @@ verbose = false
 retries = 15
 subdomains = false
 parameters = false
-providers = ["wayback","commoncrawl","otx","urlscan"]
-blacklist = ["ttf","woff","svg","png","jpg"]
+providers = ["wayback", "commoncrawl", "otx", "urlscan", "virustotal"]
+blacklist = ["ttf", "woff", "svg", "png", "jpg"]
 json = false
 
+# https://urlscan.io/user/profile/
 [urlscan]
-  apikey = ""
+apikey = ""
+
+# https://www.virustotal.com/gui/my-apikey
+[virustotal]
+apikey = ""
 
 [filters]
-  from = ""
-  to = ""
-  matchstatuscodes = []
-  matchmimetypes = []
-  filterstatuscodes = []
-  filtermimetypes = ["image/png", "image/jpg", "image/svg+xml"]
+from = ""
+to = ""
+matchstatuscodes = []
+matchmimetypes = []
+filterstatuscodes = []
+filtermimetypes = ["image/png", "image/jpg", "image/svg+xml"]
+commoncrawlfilters = []
+# commoncrawlfilters = ["=mime:text/html", "~url:.*\\.php$"]
